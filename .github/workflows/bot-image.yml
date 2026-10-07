@@ -1,0 +1,46 @@
+name: Build bot image
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'bot/**'
+      - '.github/workflows/bot-image.yml'
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: bot-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bot/package-lock.json
+      - name: Install and test
+        working-directory: bot
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Build deployment image
+        env:
+          IMAGE: ghcr.io/sharmagaurav1985/learning-assistant-bot
+        run: |
+          docker build --label "org.opencontainers.image.source=https://github.com/sharmagaurav1985/my-learning-assistant" -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:latest" bot
+      - name: Push image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_USER: ${{ github.actor }}
+          IMAGE: ghcr.io/sharmagaurav1985/learning-assistant-bot
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GH_USER" --password-stdin
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+          docker logout ghcr.io
+          printf '### Deployment image\n`%s:%s`\n\nNo Azure resources were deployed.\n' "$IMAGE" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
